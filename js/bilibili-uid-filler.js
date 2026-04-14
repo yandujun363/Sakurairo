@@ -1,5 +1,5 @@
 // js/bilibili-uid-filler.js
-// B站UID自动填充功能 - ES模块版本
+// B站UID自动填充功能 - ES模块版本 (PJAX 支持)
 class BilibiliUIDFiller {
     constructor() {
         this.lastUid = "";
@@ -7,28 +7,80 @@ class BilibiliUIDFiller {
         this.cacheKeyPrefix = "bilibili_user_";
         this.cacheExpiryDays = 7;
         this.currentUserData = null; // 保存当前用户数据
+        this.isInitialized = false; // 防止重复绑定
         this.initialize();
     }
 
     initialize() {
-        document.addEventListener("DOMContentLoaded", () => this.setupUI());
+        // 等待 DOM 初始加载
+        document.addEventListener("DOMContentLoaded", () => {
+            this.setupUI();
+            this.bindPjaxEvents();
+        });
+
+        // 如果 DOM 已经加载，立即执行
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", () => {
+                this.setupUI();
+                this.bindPjaxEvents();
+            });
+        } else {
+            this.setupUI();
+            this.bindPjaxEvents();
+        }
+
         this.addStyles();
+    }
+
+    /**
+     * 绑定 PJAX 事件
+     * 监听 pjax:success 事件，当 PJAX 加载新内容后重新绑定 UI
+     */
+    bindPjaxEvents() {
+        // 监听全局 pjax:success 事件 (适用于常见的 PJAX 库，如 jQuery-pjax 或基于其实现的框架)
+        document.addEventListener('pjax:success', () => {
+            console.log("PJAX 加载完成，重新绑定 B站 UID 填充器");
+            // 重新设置 UI 并绑定事件
+            this.setupUI();
+        });
     }
 
     setupUI() {
         const commentForm = document.getElementById("commentform");
         if (!commentForm) return;
 
-        // 检查是否已经存在B站UID输入框
-        if (document.getElementById("bilibili_uid")) {
-            console.log("B站UID输入框已存在，跳过添加");
+        // 检查是否已经存在B站UID输入框，如果存在且已绑定事件，则跳过添加，但需要重新绑定事件
+        const existingUidInput = document.getElementById("bilibili_uid");
+        if (existingUidInput) {
+            // 移除原有的事件监听，避免重复绑定
+            this.removeUidEvents(existingUidInput);
+            // 重新绑定事件
+            this.bindUIDEvents();
+            // 重新检查缓存并设置 UI
+            this.checkCacheAndSetupUI();
             return;
         }
 
+        // 如果不存在，则正常添加
         this.addUIDInput();
-
-        // 页面加载时检查缓存
+        // 检查缓存并设置 UI
         this.checkCacheAndSetupUI();
+    }
+
+    /**
+     * 移除 UID 输入框的事件监听，防止重复绑定
+     * @param {HTMLElement} uidInput 
+     */
+    removeUidEvents(uidInput) {
+        const newUidInput = uidInput.cloneNode(true);
+        uidInput.parentNode.replaceChild(newUidInput, uidInput);
+        // 更新全局引用
+        const updatedInput = document.getElementById("bilibili_uid");
+        if (updatedInput) {
+            // 重新绑定新的事件
+            updatedInput.addEventListener("blur", (e) => this.handleUIDChange(e));
+            updatedInput.addEventListener("keypress", (e) => this.handleUIDKeyPress(e));
+        }
     }
 
     addUIDInput() {
@@ -99,11 +151,27 @@ class BilibiliUIDFiller {
 
         if (!uidInput) return;
 
-        uidInput.addEventListener("blur", (e) => this.handleUIDChange(e));
-        uidInput.addEventListener("keypress", (e) => this.handleUIDKeyPress(e));
+        // 先移除原有事件，防止重复绑定
+        const newUidInput = uidInput.cloneNode(true);
+        if (uidInput.parentNode) {
+            uidInput.parentNode.replaceChild(newUidInput, uidInput);
+        }
+        const finalUidInput = document.getElementById("bilibili_uid");
+        if (finalUidInput) {
+            finalUidInput.addEventListener("blur", (e) => this.handleUIDChange(e));
+            finalUidInput.addEventListener("keypress", (e) => this.handleUIDKeyPress(e));
+        }
 
         if (uidSelect) {
-            uidSelect.addEventListener("change", (e) => this.handleSelectChange(e));
+            // 移除原有事件
+            const newUidSelect = uidSelect.cloneNode(true);
+            if (uidSelect.parentNode) {
+                uidSelect.parentNode.replaceChild(newUidSelect, uidSelect);
+            }
+            const finalUidSelect = document.getElementById("bilibili_uid_select");
+            if (finalUidSelect) {
+                finalUidSelect.addEventListener("change", (e) => this.handleSelectChange(e));
+            }
         }
     }
 
@@ -111,10 +179,16 @@ class BilibiliUIDFiller {
         const commentForm = document.getElementById("commentform");
         if (!commentForm) return;
 
-        commentForm.addEventListener("submit", (e) => {
-            // 提交表单时检查是否需要保存用户信息
-            this.checkAndSaveUser();
-        });
+        // 移除原有事件，防止重复绑定
+        const newForm = commentForm.cloneNode(true);
+        commentForm.parentNode.replaceChild(newForm, commentForm);
+        const finalForm = document.getElementById("commentform");
+        if (finalForm) {
+            finalForm.addEventListener("submit", (e) => {
+                // 提交表单时检查是否需要保存用户信息
+                this.checkAndSaveUser();
+            });
+        }
     }
 
     // 检查是否需要保存用户信息
