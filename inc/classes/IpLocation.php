@@ -20,13 +20,68 @@ class IpLocation
     {
         $this->ip = $ip;
     }
+
     /**
-     * 通过IP-API接口获取IP地理位置
+     * 通过B站API获取IP地理位置（首选，支持IPv6）
+     * 接口文档：https://api.live.bilibili.com/ip_service/v1/ip_service/get_ip_addr
+     *
+     * @param string $userAgent 可选的User-Agent，用于模拟真实请求
+     * @return boolean 成功返回true，失败返回false
+     */
+    private function getIpLocationByBilibili($userAgent = '')
+    {
+        if (empty($this->ip)) {
+            return false;
+        }
+
+        $url = "https://api.live.bilibili.com/ip_service/v1/ip_service/get_ip_addr?ip=" . urlencode($this->ip);
+        
+        // 优先使用传入的UA，否则使用默认UA
+        $ua = !empty($userAgent) ? $userAgent : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0';
+        
+        $response = wp_remote_get($url, array(
+            'timeout' => 5,
+            'headers' => array(
+                'User-Agent' => $ua
+            )
+        ));
+
+        if (is_wp_error($response)) {
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (isset($data['code']) && $data['code'] === 0 && isset($data['data'])) {
+            $info = $data['data'];
+            
+            $this->country = !empty($info['country']) ? $info['country'] : '';
+            $this->region = !empty($info['province']) ? $info['province'] : '';
+            $this->city = !empty($info['city']) ? $info['city'] : '';
+            
+            // 处理重复：country和region相同时，清空region
+            if ($this->country === $this->region) {
+                $this->region = '';
+            }
+            // 处理重复：region和city相同时，清空city
+            if ($this->region === $this->city) {
+                $this->city = '';
+            }
+            
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 通过IP-API接口获取IP地理位置（备选）
      * 接口文档：https://ip-api.com/docs/api:json
      *
      * @return boolean 成功返回true，失败返回false
      */
-    private function getIpLocationByIpApi ()
+    private function getIpLocationByIpApi()
     {
         if (empty($this->ip)) {
             return false;
@@ -35,12 +90,12 @@ class IpLocation
         // 检查速率限制
         $isLimit = get_transient('ip_location_rate_limit');
         if ($isLimit) {
-            trigger_error('通过IP-API获取IP地理位置：获取失败，超过接口速率限制', E_USER_WARNING);
             return false;
         }
 
-        // IP-API支持的语言
-        $languages = array(
+        // 获取WordPress语言用于本地化
+        $lang = get_locale();
+        $langMap = array(
             'fr' => 'fr',
             'en' => 'en',
             'zh_CN' => 'zh-CN',
@@ -50,47 +105,55 @@ class IpLocation
             'ja' => 'ja',
             'ru' => 'ru'
         );
-
-        // 获取WordPress语言用于本地化
-        $lang = get_locale();
-        $lang = isset($languages[$lang])? $languages[$lang] : 'en';
-        // 定义需要获取哪些信息，用法见接口文档
+        $lang = isset($langMap[$lang]) ? $langMap[$lang] : 'en';
+        
         $fields = '49177';
         $url = "http://ip-api.com/json/$this->ip?fields=$fields&lang=$lang";
-        $response = wp_remote_get($url);
-        // 检查响应
+        $response = wp_remote_get($url, array('timeout' => 5));
+
         if (is_wp_error($response)) {
-            $errorMessage = $response->get_error_message();
-            trigger_error('通过IP-API获取IP地理位置失败：' . $errorMessage, E_USER_WARNING);
             return false;
-        } else {
-            $headers = wp_remote_retrieve_headers($response);
-            // 请求剩余次数
-            $remainingAmount = $headers['X-Rl'];
-            // 次数重置剩余时间
-            $resetTime = $headers['X-Ttl'];
-            // 防止超过速率限制
-            if ($remainingAmount <= 2) {
-                set_transient('ip_location_rate_limit', 'is_limit', $resetTime);
-            }
-            // 处理响应数据
-            $data = json_decode(wp_remote_retrieve_body($response), true);
-            if (!empty($data)) {
-                if ($data['status'] == 'success') {
-                    $this->country = $data['country'] ? $data['country'] : '';
-                    $this->region = $data['regionName'] ? $data['regionName'] : '';
-                    $this->city = $data['city'] ? $data['city'] : '';
-                    return true;
-                } else {
-                    $message = $data['message'];
-                    trigger_error("通过IP-API获取IP地理位置失败：$message", E_USER_WARNING);
-                    return false;
-                }
-            } else {
-                trigger_error('通过IP-API获取IP地理位置失败：返回的数据不是json格式', E_USER_WARNING);
-                return false;
-            }
         }
+
+        $headers = wp_remote_retrieve_headers($response);
+        $remainingAmount = $headers['X-Rl'] ?? 45;
+        $resetTime = $headers['X-Ttl'] ?? 60;
+        
+        if ($remainingAmount <= 2) {
+            set_transient('ip_location_rate_limit', 'is_limit', $resetTime);
+        }
+
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (!empty($data) && isset($data['status']) && $data['status'] === 'success') {
+            $this->country = $data['country'] ?? '';
+            $this->region = $data['regionName'] ?? '';
+            $this->city = $data['city'] ?? '';
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 通过Cloudflare获取国家代码（仅备选）
+     * 只返回city字段，避免主权问题
+     *
+     * @return boolean 成功返回true，失败返回false
+     */
+    private function getIpLocationByCloudflare()
+    {
+        $countryCode = $_SERVER['HTTP_CF_CITY'] ?? '';
+        
+        if (empty($countryCode)) {
+            return false;
+        }
+
+        $this->city = $countryCode;
+        $this->country = '';
+        $this->region = '';
+        
+        return true;
     }
 
     /**
@@ -100,28 +163,22 @@ class IpLocation
      */
     private function outputLocation()
     {
-        $location = array(
-            'country' => $this->country,
-           'region' => $this->region,
-            'city' => $this->city
+        return array(
+            'country' => $this->country ?? '',
+            'region' => $this->region ?? '',
+            'city' => $this->city ?? ''
         );
-        return $location;
     }
 
     /**
-     * 检查IP地理位置信息的字段是否都是完整的
+     * 检查IP地理位置信息是否有效
      *
      * @param array $data 地理位置信息数组
-     * @return boolean true，完整；false，不完整
+     * @return boolean true有效，false无效
      */
     private function checkCompleteness(array $data)
     {
-        $dataFilter = array_filter($data);
-        if (count($dataFilter) === count($data)) {
-            return true;
-        } else {
-            return false;
-        }
+        return !empty($data['country']) || !empty($data['region']) || !empty($data['city']);
     }
 
     /**
@@ -135,12 +192,11 @@ class IpLocation
         if (empty($ip)) {
             return false;
         }
-        // 检查是否是合法的 IPv4 或 IPv6 地址
+        
         if (!filter_var($ip, FILTER_VALIDATE_IP)) {
             return false;
         }
 
-        // 检查是否是保留地址
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
             return true;
         } else {
@@ -150,26 +206,44 @@ class IpLocation
 
     /**
      * 获取IP地址的地理位置信息
+     * 优先级：B站API > ip-api.com > Cloudflare
      *
-     * @return mixed 成功时返回地理位置信息数组array('country' => '国家','region' => '地区（省份）','city' => '城市')；失败时返回false
+     * @param string $userAgent 可选的User-Agent（用于B站API）
+     * @return mixed 成功时返回地理位置信息数组；失败时返回false
      */
-    public function getLocation()
+    public function getLocation($userAgent = '')
     {
         // 检查IP地址的合法性
         if (!static::checkIpValid($this->ip)) {
-            trigger_error('获取IP地理位置失败：不是有效的IP地址', E_USER_WARNING);
             return false;
         }
 
-        $this->getIpLocationByIpApi();
-        
-        $data = $this->outputLocation();
-        if ($this->checkCompleteness($data)) {
-            return $data;
-        } else {
-            trigger_error('获取IP地理位置失败', E_USER_WARNING);
-            return false;
+        // 优先级1：B站API（支持IPv6，精度最高）
+        if ($this->getIpLocationByBilibili($userAgent)) {
+            $data = $this->outputLocation();
+            if ($this->checkCompleteness($data)) {
+                return $data;
+            }
         }
+
+        // 优先级2：ip-api.com（备选）
+        if ($this->getIpLocationByIpApi()) {
+            $data = $this->outputLocation();
+            if ($this->checkCompleteness($data)) {
+                return $data;
+            }
+        }
+
+        // 优先级3：Cloudflare（仅国家代码，放在city字段）
+        if ($this->getIpLocationByCloudflare()) {
+            $data = $this->outputLocation();
+            if ($this->checkCompleteness($data)) {
+                return $data;
+            }
+        }
+
+        // 全炸：不显示任何信息
+        return false;
     }
 }
 
@@ -187,9 +261,9 @@ class IpLocationParse
 
     public function __construct(array $data)
     {
-        $this->country = $data['country'];
-        $this->region = $data['region'];
-        $this->city = $data['city'];
+        $this->country = $data['country'] ?? '';
+        $this->region = $data['region'] ?? '';
+        $this->city = $data['city'] ?? '';
     }
 
     /**
@@ -199,83 +273,113 @@ class IpLocationParse
      */
     public function getLocationHtml()
     {
-        $html = '';
-        $html.= '<div class="ip-location">';
-        $html.= '<div class="ip-location-country">'.$this->country.'</div>';
-        $html.= '<div class="ip-location-region">'.$this->region.'</div>';
-        $html.= '<div class="ip-location-city">'.$this->city.'</div>';
-        $html.= '</div>';
+        $html = '<div class="ip-location">';
+        if (!empty($this->country)) {
+            $html .= '<div class="ip-location-country">' . $this->country . '</div>';
+        }
+        if (!empty($this->region)) {
+            $html .= '<div class="ip-location-region">' . $this->region . '</div>';
+        }
+        if (!empty($this->city)) {
+            $html .= '<div class="ip-location-city">' . $this->city . '</div>';
+        }
+        $html .= '</div>';
         return $html;
     }
 
     /**
      * 获取简洁的IP地址地理信息
+     * 格式：国家 省份 城市（空格分隔）
      *
-     * @return string “国家 地区（省份） 城市”
+     * @return string 简洁的地理位置字符串
      */
     public function getLocationConcision()
     {
-        return $this->country.' '.$this->region.' '.$this->city;
+        $parts = array();
+        
+        if (!empty($this->country)) {
+            $parts[] = $this->country;
+        }
+        if (!empty($this->region) && $this->region !== $this->country) {
+            $parts[] = $this->region;
+        }
+        // if (!empty($this->city) && $this->city !== $this->region && $this->city !== $this->country) {
+        //     $parts[] = $this->city;
+        // }
+        
+        return !empty($parts) ? implode(' ', $parts) : '';
     }
 
     /**
-     * 通过评论ID获取IP地理位置信息，当数据库里不存在IP地理位置信息时会自动请求接口获取
+     * 通过评论ID获取IP地理位置信息
      *
      * @param int $comment_id 评论ID
-     * @return string 成功时返回IP地理位置信息：“国家 地区（省份） 城市”；失败时返回“Unknown”或“Reserved Address”或“Empty Address”
+     * @return string 地理位置信息
      */
     public static function getIpLocationByCommentId(int $commentId)
     {
         $ipLocation = get_comment_meta($commentId, 'iro_ip_location', true);
-        if ($ipLocation) {
+        if ($ipLocation && is_array($ipLocation)) {
             $location = new IpLocationParse($ipLocation);
             return $location->getLocationConcision();
-        } else {
-            // 解析IP地址地理位置
-            $commentIp = get_comment_author_IP($commentId);
-            if (!empty($commentIp)) {
-                if (IPLocation::checkIpValid($commentIp)) {
-                    $ipLocation = new IPLocation($commentIp);
-                    $location = $ipLocation->getLocation();
-                    // 记录IP地理位置信息
-                    if ($location) {
-                        if (iro_opt('save_location')) add_comment_meta($commentId, 'iro_ip_location', $location);
-                        $locationParse = new IpLocationParse($location);
-                        return $locationParse->getLocationConcision();
-                    } else {
-                        return __('Unknown');
-                    }
-                } else {
-                    return __('Reserved Address');
-                }
-            } else {
-                return __('Empty Address');
-            }
         }
+        
+        $commentIp = get_comment_author_IP($commentId);
+        if (empty($commentIp)) {
+            return __('Empty Address');
+        }
+        
+        if (!IpLocation::checkIpValid($commentIp)) {
+            return __('Reserved Address');
+        }
+        
+        // 获取评论的 User-Agent
+        $commentUserAgent = get_comment_meta($commentId, '_user_agent', true);
+        if (empty($commentUserAgent)) {
+            // 尝试直接从comment对象获取
+            $comment = get_comment($commentId);
+            $commentUserAgent = $comment->comment_agent ?? '';
+        }
+        
+        $ipLocation = new IpLocation($commentIp);
+        // 传入评论的UA
+        $location = $ipLocation->getLocation($commentUserAgent);
+        
+        if ($location && is_array($location)) {
+            if (function_exists('iro_opt') && iro_opt('save_location')) {
+                add_comment_meta($commentId, 'iro_ip_location', $location);
+            }
+            $locationParse = new IpLocationParse($location);
+            return $locationParse->getLocationConcision();
+        }
+        
+        return __('Unknown');
     }
 
     /**
      * 获取单个IP地址地理位置信息
      *
      * @param string $ip IP地址
-     * @return string 成功时返回IP地理位置信息：“国家 地区（省份） 城市”；失败时返回“Unknown”或“Reserved Address”或“Empty Address”
+     * @return string 地理位置信息
      */
     public static function getIpLocationByIp(string $ip)
     {
         if (empty($ip)) {
             return __('Empty Address');
         }
-        if (IPLocation::checkIpValid($ip)) {
-            $ipLocation = new IPLocation($ip);
-            $location = $ipLocation->getLocation();
-            if ($location) {
-                $locationParse = new IpLocationParse($location);
-                return $locationParse->getLocationConcision();
-            } else {
-                return __('Unknown');
-            }
-        } else {
+        
+        if (!IpLocation::checkIpValid($ip)) {
             return __('Reserved Address');
         }
+        
+        $ipLocation = new IpLocation($ip);
+        $location = $ipLocation->getLocation();
+        
+        if ($location && is_array($location)) {
+            $locationParse = new IpLocationParse($location);
+            return $locationParse->getLocationConcision();
+        }
+        
+        return __('Unknown');
     }
 }
