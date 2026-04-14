@@ -274,10 +274,6 @@ class BilibiliUIDFiller {
             option.textContent = `${user.uid} - ${user.data.name} (${this.formatTime(
                 user.timestamp
             )})`;
-            // 添加选中状态：最新的一条默认选中
-            // if (index === 0) {
-            //     option.selected = true;
-            // }
             uidSelect.appendChild(option);
         });
 
@@ -295,13 +291,6 @@ class BilibiliUIDFiller {
             `检测到${cachedUsers.length}个B站账号，请选择或手动输入`,
             "info"
         );
-
-        // 如果默认选中了账号，自动填充
-        // if (cachedUsers.length > 0) {
-        //     setTimeout(() => {
-        //         this.fillFromCache(cachedUsers[0].uid, true);
-        //     }, 100);
-        // }
     }
 
     // 添加下拉框箭头样式
@@ -515,6 +504,7 @@ class BilibiliUIDFiller {
 
     async fetchBilibiliInfo(uid) {
         if (!uid || !/^\d+$/.test(uid)) {
+            this.showToast("请输入有效的B站UID（纯数字）", "error");
             return;
         }
 
@@ -533,16 +523,14 @@ class BilibiliUIDFiller {
         uidInput.disabled = true;
 
         try {
-            // 使用代理API绕过CORS限制
+            // 使用你自己的API
             const response = await fetch(
-                `https://uapis.cn/api/v1/social/bilibili/userinfo?uid=${uid}`,
+                `https://live-status-api.yangdujun.top/api/card?mid=${uid}&mode=raw&photo=true`,
                 {
                     method: "GET",
                     headers: {
                         Accept: "application/json",
                     },
-                    mode: "cors",
-                    credentials: "omit",
                 }
             );
 
@@ -551,14 +539,30 @@ class BilibiliUIDFiller {
                 throw new Error(`HTTP ${response.status}: ${errorMsg}`);
             }
 
-            const data = await response.json();
+            const result = await response.json();
 
-            if (data && data.name) {
+            // 检查API返回的code
+            if (result.code !== 0) {
+                throw new Error(`API错误: ${result.message || "未知错误"}`);
+            }
+
+            // 从响应中提取用户信息
+            // 根据你提供的文档，数据在 result.data.card 中
+            const cardData = result.data?.card;
+            
+            if (cardData && cardData.name) {
+                // 获取等级信息
+                const level = cardData.level_info?.current_level || "0";
+                
                 // 处理头像URL，确保使用正确的referrerpolicy
                 const processedData = {
-                    ...data,
-                    // 确保头像URL是有效的HTTPS链接
-                    face: this.processAvatarUrl(data.face || ""),
+                    name: cardData.name,
+                    face: this.processAvatarUrl(cardData.face || ""),
+                    level: level,
+                    mid: cardData.mid,
+                    sex: cardData.sex,
+                    sign: cardData.sign,
+                    fans: cardData.fans,
                 };
 
                 // 保存当前用户数据（用于后续保存）
@@ -566,7 +570,7 @@ class BilibiliUIDFiller {
 
                 this.showBilibiliConfirmDialog(uid, processedData);
             } else {
-                this.showToast("获取失败：返回数据格式错误", "error");
+                this.showToast("获取失败：未找到该B站用户", "error");
             }
         } catch (error) {
             console.error("获取B站信息失败:", error);
@@ -605,6 +609,8 @@ class BilibiliUIDFiller {
             return "未找到该B站用户，请检查UID";
         } else if (error.message.includes("HTTP 429")) {
             return "操作太快了，请稍等片刻再试";
+        } else if (error.message.includes("API错误")) {
+            return error.message;
         } else if (
             error.message.includes("Failed to fetch") ||
             error.message.includes("NetworkError")
@@ -746,7 +752,7 @@ class BilibiliUIDFiller {
                                 color: #333;
                                 margin-bottom: 4px;
                             ">
-                                ${userData.name}
+                                ${this.escapeHtml(userData.name)}
                             </div>
                             <div style="
                                 font-size: 14px;
@@ -808,6 +814,17 @@ class BilibiliUIDFiller {
                 </div>
             </div>
         `;
+    }
+
+    // 简单的XSS防护
+    escapeHtml(str) {
+        if (!str) return "";
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
     }
 
     bindDialogEvents(dialog, uid, userData, fromCache = false) {
@@ -1105,7 +1122,7 @@ class BilibiliUIDFiller {
             ">
                 <i class="fa-solid ${icons[type] || icons.info}" 
                 style="margin-right:8px;"></i>
-                ${message}
+                ${this.escapeHtml(message)}
             </div>
         `;
     }
