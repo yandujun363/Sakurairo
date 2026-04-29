@@ -3280,7 +3280,7 @@ $prefix = 'iro_options';
           'id'      => 'bilibili_uid_enable',
           'type'    => 'switcher',
           'title'   => __('Enable Bilibili UID Field in Comments', 'sakurairo_csf'),
-          'label'   => __('When enabled, a Bilibili UID input field will appear in the comment area for user identity verification.', 'sakurairo_csf'),
+          'label'   => __('When enabled, a Bilibili UID input field will appear in the comment area. After the user enters a UID, the system will automatically fetch the user’s basic info via API and populate it into the comment form.', 'sakurairo_csf'),
           'default' => false,
       ),
       
@@ -3288,7 +3288,7 @@ $prefix = 'iro_options';
           'id'         => 'bilibili_uid_config',
           'type'       => 'code_editor',
           'title'      => __('Bilibili UID Filler Config', 'sakurairo_csf'),
-          'desc'       => __('Custom JavaScript configuration for Bilibili UID validation and user information retrieval.', 'sakurairo_csf'),
+          'desc'       => __('Custom JavaScript configuration for fetching Bilibili user info by UID (used to populate comment form).', 'sakurairo_csf'),
           'dependency' => array('bilibili_uid_enable', '==', 'true'),
           'settings'   => array(
               'mode'  => 'javascript',
