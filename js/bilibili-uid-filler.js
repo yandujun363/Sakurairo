@@ -576,6 +576,61 @@ class BilibiliUIDFiller {
         return `${days}天前`;
     }
 
+    //API URL 变量替换
+    getAPIUrl(uid) {
+        const urlConfig = Sakurairo_Bilibili_UID_Filler_Config.url;
+        
+        // 如果是函数，调用并传入uid
+        if (typeof urlConfig === 'function') {
+            return urlConfig(uid);
+        }
+        
+        // 如果是字符串，进行占位符替换
+        if (typeof urlConfig === 'string') {
+            if (!urlConfig.includes("${uid}")) {
+                throw new Error("配置错误：URL模板必须包含${uid}占位符");   
+            }
+            return urlConfig.replace("${uid}", uid);
+        }
+        
+        // 都不是则报错
+        throw new Error("配置错误：url 必须是字符串或函数");
+    }
+
+    // 获取请求配置
+    getRequestConfig(uid) {
+        const requestConfig = Sakurairo_Bilibili_UID_Filler_Config.request;
+        
+        // 如果是函数，调用并传入uid
+        if (typeof requestConfig === 'function') {
+            return requestConfig(uid);
+        }
+        
+        // 如果是对象，直接返回
+        if (requestConfig && typeof requestConfig === 'object') {
+            return requestConfig;
+        }
+        
+        // 默认配置
+        return {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        };
+    }
+
+    // 获取响应处理函数
+    getResponseHandler() {
+        const responseHandler = Sakurairo_Bilibili_UID_Filler_Config.responseHandler;
+        
+        if (!responseHandler || typeof responseHandler !== 'function') {
+            throw new Error("配置错误：必须提供 responseHandler 函数来处理API响应");
+        }
+        
+        return responseHandler;
+    }
+
     async fetchBilibiliInfo(uid) {
         if (!uid || !/^\d+$/.test(uid)) {
             this.showToast("请输入有效的B站UID（纯数字）", "error");
@@ -597,55 +652,55 @@ class BilibiliUIDFiller {
         uidInput.disabled = true;
 
         try {
-            // 使用你自己的API
-            const response = await fetch(
-                `https://live-status-api.yangdujun.top/api/card?mid=${uid}&mode=raw&photo=true`,
-                {
-                    method: "GET",
-                    headers: {
-                        Accept: "application/json",
-                    },
-                }
-            );
+            // 获取URL和请求配置
+            const url = this.getAPIUrl(uid);
+            const requestConfig = this.getRequestConfig(uid);
+            
+            // 获取响应处理函数
+            const responseHandler = this.getResponseHandler();
+            
+            // 发起请求
+            const response = await fetch(url, requestConfig);
 
             if (!response.ok) {
                 const errorMsg = this.getErrorMessage(response.status);
                 throw new Error(`HTTP ${response.status}: ${errorMsg}`);
             }
 
-            const result = await response.json();
-
-            // 检查API返回的code
-            if (result.code !== 0) {
-                throw new Error(`API错误: ${result.message || "未知错误"}`);
-            }
-
-            // 从响应中提取用户信息
-            // 根据你提供的文档，数据在 result.data.card 中
-            const cardData = result.data?.card;
+            // 获取原始响应数据
+            let rawData;
+            const contentType = response.headers.get("content-type");
             
-            if (cardData && cardData.name) {
-                // 获取等级信息
-                const level = cardData.level_info?.current_level || "0";
-                
-                // 处理头像URL，确保使用正确的referrerpolicy
-                const processedData = {
-                    name: cardData.name,
-                    face: this.processAvatarUrl(cardData.face || ""),
-                    level: level,
-                    mid: cardData.mid,
-                    sex: cardData.sex,
-                    sign: cardData.sign,
-                    fans: cardData.fans,
-                };
-
-                // 保存当前用户数据（用于后续保存）
-                this.currentUserData = processedData;
-
-                this.showBilibiliConfirmDialog(uid, processedData);
+            if (contentType && contentType.includes("application/json")) {
+                rawData = await response.json();
             } else {
-                this.showToast("获取失败：未找到该B站用户", "error");
+                rawData = await response.text();
             }
+
+            // 调用响应处理函数提取数据
+            const processedData = responseHandler(rawData);
+            
+            // 验证必需字段
+            const requiredFields = ['name', 'face', 'level', 'mid'];
+            const missingFields = requiredFields.filter(field => !processedData || !processedData[field]);
+            
+            if (missingFields.length > 0) {
+                throw new Error(`响应处理函数缺少必需字段: ${missingFields.join(', ')}`);
+            }
+            
+            // 确保level是数字或字符串
+            if (processedData.level === undefined || processedData.level === null) {
+                throw new Error("响应处理函数必须返回 level 字段");
+            }
+            
+            // 处理头像URL，确保使用正确的referrerpolicy
+            processedData.face = this.processAvatarUrl(processedData.face || "");
+            
+            // 保存当前用户数据（用于后续保存）
+            this.currentUserData = processedData;
+
+            this.showBilibiliConfirmDialog(uid, processedData);
+            
         } catch (error) {
             console.error("获取B站信息失败:", error);
             const userMessage = this.getUserFriendlyErrorMessage(error);
