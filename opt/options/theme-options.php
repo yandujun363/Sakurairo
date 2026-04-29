@@ -3270,7 +3270,55 @@ $prefix = 'iro_options';
         'dependency' => array( 'img_upload_api', '!=', 'off', '', 'true' ),
         'default' => 'https://images.weserv.nl/?url='
       ),
+      
+      array(
+          'type' => 'subheading',
+          'content' => __('Bilibili UID Settings', 'sakurairo_csf'),
+      ),
 
+      array(
+          'id'      => 'bilibili_uid_enable',
+          'type'    => 'switcher',
+          'title'   => __('Enable Bilibili UID Field in Comments', 'sakurairo_csf'),
+          'label'   => __('When enabled, a Bilibili UID input field will appear in the comment area for user identity verification.', 'sakurairo_csf'),
+          'default' => false,
+      ),
+      
+      array(
+          'id'         => 'bilibili_uid_config',
+          'type'       => 'code_editor',
+          'title'      => __('Bilibili UID Filler Config', 'sakurairo_csf'),
+          'desc'       => __('Custom JavaScript configuration for Bilibili UID validation and user information retrieval.', 'sakurairo_csf'),
+          'dependency' => array('bilibili_uid_enable', '==', 'true'),
+          'settings'   => array(
+              'mode'  => 'javascript',
+              'theme' => 'monokai',
+          ),
+          'default'    => <<<JS
+      const Sakurairo_Bilibili_UID_Filler_Config = {
+          url: (uid) => `/wp-json/sakura/v1/bilibili/card?mid=\${uid}&photo=true`,
+          request: (uid) => ({
+              method: "GET",
+              headers: {
+                  Accept: "application/json",
+              },
+          }),
+          responseHandler: (responseData) => {
+              if (responseData.code !== 0 || !responseData.data) {
+                  throw new Error(`API错误：\${responseData.message}`);
+              }
+              const data = responseData.data;
+              return {
+                  mid: data.card.mid,
+                  name: data.card.name,
+                  face: data.card.face,
+                  level: data.card.level_info.current_level,
+              };
+          },
+      };
+      JS
+      ),
+      
       array(
         'type' => 'subheading',
         'content' => __('Comment Email Notification','sakurairo_csf'),

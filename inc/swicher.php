@@ -150,6 +150,27 @@ function font_end_js_control()
     $sakura_effect = iro_opt('sakura_falling_effects');
     if ($sakura_effect != 'off') $iro_opt['effect'] = array('amount' => $sakura_effect);
     if (iro_opt('theme_darkmode_auto')) $iro_opt['dm_strategy'] = iro_opt('theme_darkmode_strategy', 'time');
-    wp_add_inline_script('app', 'var _iro = ' . json_encode($iro_opt, JSON_NUMERIC_CHECK | JSON_UNESCAPED_UNICODE), 'before');
+
+    $bilibili_js = '';
+    if (iro_opt('bilibili_uid_enable', false) && is_single() && comments_open()) {
+        $config = iro_opt('bilibili_uid_config', '');
+        if (!empty($config)) {
+            $bilibili_js = '
+    // 注入B站UID配置
+    ' . $config . '
+        
+    // 动态注入 bilibili-uid-filler.js
+    if (!document.getElementById("bilibili-uid-filler")) {
+        var script = document.createElement("script");
+        script.id = "bilibili-uid-filler";
+        script.src = "' . get_template_directory_uri() . '/js/bilibili-uid-filler.js";
+        document.body.appendChild(script);
+    }
+    ';
+        }
+    }
+
+
+    wp_add_inline_script('app', 'var _iro = ' . json_encode($iro_opt, JSON_NUMERIC_CHECK | JSON_UNESCAPED_UNICODE) . ';' . $bilibili_js, 'before');
 }
 add_action('wp_head', 'font_end_js_control');

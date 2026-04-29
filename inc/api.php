@@ -12,6 +12,7 @@
  */
 include_once('classes/Aplayer.php');
 include_once('classes/Bilibili.php');
+include_once('classes/BilibiliProxy.php'); 
 include_once('classes/Cache.php');
 include_once('classes/Images.php');
 include_once('classes/gallery.php');
@@ -26,6 +27,7 @@ use Sakura\API\QQ;
 use Sakura\API\Cache;
 use Sakura\API\Captcha;
 use Sakura\API\BilibiliFavListCron;
+use Sakura\API\BilibiliProxy;
 
 /**
  * Router
@@ -99,6 +101,12 @@ add_action('rest_api_init', function () {
     register_rest_route('sakura/v1', '/favlist/bilibili/folders', array(
         'methods' => 'GET',
         'callback' => 'favlist_bilibili_folders',
+        'permission_callback' => '__return_true'
+    )
+    );
+    register_rest_route('sakura/v1', '/bilibili/card', array(
+        'methods' => 'GET',
+        'callback' => [new \Sakura\API\BilibiliProxy(), 'get_user_card'],
         'permission_callback' => '__return_true'
     )
     );

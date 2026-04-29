@@ -802,20 +802,6 @@ if (!function_exists('akina_comment_format')) {
     }
 }
 
-// 注入B站UID前端功能
-function add_bilibili_frontend_script() {
-    if (is_single() && comments_open()) {
-        static $script_added = false;
-        if ($script_added) return;
-        $script_added = true;
-        
-        ?>
-        <script src="<?php echo get_template_directory_uri(); ?>/js/bilibili-uid-filler.js"></script>
-        <?php
-    }
-}
-add_action('wp_footer', 'add_bilibili_frontend_script');
-
 
 /**
  * 获取访客VIP样式

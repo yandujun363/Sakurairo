@@ -2132,6 +2132,54 @@ $sections = [
 				'settings' => 'nav_menu_notice',
 				'default'  => __('For more detailed configuration of the comment area, please go to the backend configuration','Sakurairo_C'),
 			],
+			[
+				'type'     => 'switch',
+				'settings' => 'bilibili_uid_enable',
+				'iro_key'  => 'bilibili_uid_enable',
+				'label'    => esc_html__( 'Enable Bilibili UID Field in Comments', 'Sakurairo_C' ),
+				'default'  => false,
+			],
+			[
+				'type'     => 'textarea',
+				'settings' => 'bilibili_uid_config',
+				'iro_key'  => 'bilibili_uid_config',
+				'label'    => esc_html__( 'Bilibili UID Filler Config', 'Sakurairo_C' ),
+				'description' => esc_html__( 'Custom JavaScript configuration for Bilibili UID validation', 'Sakurairo_C' ),
+				'default'  => <<<JS
+			const Sakurairo_Bilibili_UID_Filler_Config = {
+			url: (uid) =>
+				`/wp-json/sakura/v1/bilibili/card?mid=\${uid}&photo=true`,
+			request: (uid) => ({
+				method: "GET",
+				headers: {
+				Accept: "application/json",
+				},
+			}),
+			responseHandler: (responseData) => {
+				if (responseData.code !== 0 || !responseData.data) {
+				throw new Error(`API错误：\${responseData.message}`);
+				}
+				const data = responseData.data;
+				return {
+				mid: data.card.mid,
+				name: data.card.name,
+				face: data.card.face,
+				level: data.card.level_info.current_level,
+				};
+			},
+			};
+			JS,
+				'choices'     => [
+					'language' => 'javascript',
+				],
+				'active_callback' => [
+					[
+						'setting'  => 'bilibili_uid_enable',
+						'operator' => '==',
+						'value'    => true,
+					]
+				],
+			],
 		],
 	],
 ];
