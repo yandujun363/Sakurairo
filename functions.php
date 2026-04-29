@@ -810,10 +810,7 @@ function add_bilibili_frontend_script() {
         $script_added = true;
         
         ?>
-        <script type="module">
-            import BilibiliUIDFiller from '<?php echo get_template_directory_uri(); ?>/js/bilibili-uid-filler.js';
-            new BilibiliUIDFiller();
-        </script>
+        <script src="<?php echo get_template_directory_uri(); ?>/js/bilibili-uid-filler.js"></script>
         <?php
     }
 }
