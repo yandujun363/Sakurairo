@@ -3295,28 +3295,66 @@ $prefix = 'iro_options';
               'theme' => 'monokai',
           ),
           'default'    => <<<JS
-      const Sakurairo_Bilibili_UID_Filler_Config = {
-          url: (uid) => `/wp-json/sakura/v1/bilibili/card?mid=\${uid}&photo=true`,
-          request: (uid) => ({
-              method: "GET",
-              headers: {
-                  Accept: "application/json",
-              },
-          }),
-          responseHandler: (responseData) => {
-              if (responseData.code !== 0 || !responseData.data) {
-                  throw new Error(`API错误：\${responseData.message}`);
-              }
-              const data = responseData.data;
-              return {
-                  mid: data.card.mid,
-                  name: data.card.name,
-                  face: data.card.face,
-                  level: data.card.level_info.current_level,
-              };
-          },
-      };
-      JS
+/**
+ * B站 UID 用户信息获取配置
+ * 
+ * ⚠️ 重要提示：
+ * 1. 如果你不懂 JavaScript，请不要修改此项，保持默认即可正常工作。
+ * 2. responseHandler 的返回值【必须包含】以下4个字段，字段名不能改，不能少：
+ *    - mid   : 用户 B站 UID（字符串或数字）
+ *    - name  : 用户昵称（字符串）
+ *    - face  : 用户头像 URL（字符串）
+ *    - level : 用户 B站等级（数字）
+ * 3. 除了以上4个必需字段，你可以额外返回任意自定义字段（不会影响功能）
+ * 
+ * 你可以自由修改：
+ * - url: API 地址（支持函数或字符串，字符串需包含 ${uid} 占位符）
+ * - request: 请求配置（支持函数或对象，如 method、headers、body）
+ * - responseHandler: 将任意 API 返回格式转换为上述必需字段
+ * 
+ * 示例：用户自建代理接口返回值格式不同时，可在 responseHandler 中转换
+ */
+const Sakurairo_Bilibili_UID_Filler_Config = {
+    // API 请求地址（支持函数或字符串）
+    // 函数形式：接收 uid，返回完整 URL
+    // 字符串形式：需包含 ${uid} 占位符，如 "https://api.example.com/user?uid=${uid}"
+    url: (uid) => `/wp-json/sakura/v1/bilibili/card?mid=${uid}&photo=true`,
+
+    // 请求配置（支持函数或对象）
+    // 函数形式：接收 uid，返回请求配置对象
+    // 对象形式：直接作为 fetch 的第二个参数
+    request: (uid) => ({
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+        },
+    }),
+
+    // 响应处理函数（必须提供）
+    // 参数：API 返回的原始数据
+    // 返回值：必须包含 mid, name, face, level 四个字段（字段名固定）
+    // 可以额外返回其他字段
+    responseHandler: (responseData) => {
+        // 检查 API 返回状态
+        if (responseData.code !== 0 || !responseData.data) {
+            throw new Error(`API错误：${responseData.message}`);
+        }
+        
+        const data = responseData.data;
+        
+        // 返回值必须包含以下4个字段（字段名固定，不能少）
+        return {
+            mid: data.card.mid,                    // 必需：用户UID
+            name: data.card.name,                  // 必需：昵称
+            face: data.card.face,                  // 必需：头像URL
+            level: data.card.level_info.current_level, // 必需：等级
+            // 可以在这里继续添加额外字段，如：
+            // sign: data.card.sign,
+            // vip_type: data.card.vip_type,
+        };
+    },
+};
+JS
       ),
       
       array(
