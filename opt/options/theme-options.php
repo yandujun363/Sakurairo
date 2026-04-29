@@ -3294,7 +3294,7 @@ $prefix = 'iro_options';
               'mode'  => 'javascript',
               'theme' => 'monokai',
           ),
-          'default'    => <<<JS
+          'default'    => <<<'JS'
 /**
  * B站 UID 用户信息获取配置
  * 
