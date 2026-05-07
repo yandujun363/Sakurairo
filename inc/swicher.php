@@ -155,6 +155,7 @@ function font_end_js_control()
     if (iro_opt('bilibili_uid_enable', false) && is_single() && comments_open()) {
         $config = iro_opt('bilibili_uid_config', '');
         if (!empty($config)) {
+            $config = html_entity_decode($config);
             $bilibili_js = '
     // 注入B站UID配置
     ' . $config . '
